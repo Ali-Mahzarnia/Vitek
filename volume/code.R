@@ -255,257 +255,258 @@ for (i in 1:(len-1))  {
   }
 }
 
-pvalsresults[,7] = p.adjust(pvalsresults[,7], "fdr") #Benjamini & Hochberg
+colnames(pvalsresults)
+pvalsresults[,8] = p.adjust(pvalsresults[,7], "fdr") #Benjamini & Hochberg
 
  write.csv( file = "results_volume.csv"  ,pvalsresults )
 #####
-
-
-# Create new 'pvalsresultadjusted' variable to eventually populated with FDR-corrected values
-pvalsresultsadjusted=pvalsresults
-
-## adjust pvalues Benjamini & Hochberg
-# To understand what we're doing here, we are comparing all the p-values determined from the ANOVAs conducted on all
-# 332 brain regions. Because we can treat each ANOVA as an individual hypothesis test, we need to account for the 
-# multiple comparisons effect in the type 1 error rate. This can be done using various P-value (or significance) 
-# correction methods, but we will be using the Benjamini & Hochberg Correction method (specified by either 'BH or 'fdr')
-# References: https://www.youtube.com/watch?v=rZKa4tW2NKs&t=483s
-#             https://www.youtube.com/watch?v=K8LQSvtjcEo&t=43s
-pvalsresultsadjusted[,7] = p.adjust(pvalsresultsadjusted[,7], "fdr") #Benjamini & Hochberg
-pvalsresultsadjusted[,7] = as.numeric(pvalsresultsadjusted[,7])
-
-# Filter 'pvalsresultesadjusted' table to display brain regions that have significant p values (p<0.05)
-# sig = pvalsresultsadjusted[as.numeric(pvalsresultsadjusted[,10])<=0.05,] 
-sig = pvalsresultsadjusted[pvalsresultsadjusted[,6]<=0.05,] #&
-                           # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)]>0.05 & # For Levene's Test
-                           # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)-1]>0.05,] # For Shapiro-Wilk Test
-sig = as.data.frame(sig)
-# sig <- sig[order(sig$`Cohen's F Effect Size`, decreasing = TRUE),]
-
-
-# Create empty 'posthoc' matrix to eventually populate with all gruop comparison data; 
-# Set first 'posthoc' column equal to 8th column of 'sig' matrix (FDR-corrected P-value column)
-posthoc = matrix(NA,dim(sig)[1],22)
-posthoc[,1]=sig[,"FDR corrected Pvalue"]
-
-# Loop through each significant (FDR-corrected p-value < 0.05) brain region (from 'sig' matrix) and conduct 
-# a Tukey test and report p-values for each comparison group
-for (i in 1:dim(sig)[1]) {
-  # Set 'tempname' to the currently analyzed brain regions
-  tempname=rownames(sig)[i]
-  
-  # Find abbreviation full structure name
-  sa_ind = which(struc_abbrev$Abbreviation == tempname)
-  full_struc = struc_abbrev[sa_ind, 'Structure']
-  reg_ind = struc_abbrev[sa_ind, "Index"]
-  #posthoc[,1 = full_struc]
-  
-  # Conduct ANOVA on currently analyzed brain region and use ANOVA output to conduct post-hoc Tukey test
-  mylm <- lm(get(tempname) ~ as.factor(Treatment), data=data) 
-  # anova(mylm)
-  tuk=emmeans(mylm, list(pairwise ~ as.factor(Treatment)), adjust="tukey")
-  
-  # Get mean/stdev columns
-
-  means = as.numeric(sig[tempname, c("Mean sedentary group", "Mean Treadmill", "Mean Wheel Only")])
-  sds = as.numeric(sig[tempname, c("SD sedentary group", "SD Treadmill", "SD Wheen Only")])
-  
-  # Define Tukey comparison groups for calculating hedge's G effect size. Note that these groups are mannually
-  # set so that effect sizes can correlate with changes in regional FAs (e.g. negative effect size correlates
-  # with decrease in regional FAs)
-  control = c('wheel_only', 'treadmill', 'treadmill')
-  treatment = c('sedentary', 'sedentary', 'wheel_only')
-  
-  # For given brain region, loop through comparison groups and calculate hedge's g for each comparison groups
-  for (j in 1:length(control)){
-    hedges_out = hedges_g(get(tempname) ~ factor(Treatment, levels=c(control[j], treatment[j])), data=data)
-    posthoc[i,j+13]=hedges_out$Hedges_g #Go through columns 5, 6, 7
-  }
-  
-  # Add adjusted P-value and add low and high confidence intervals to 'posthoc' matrix
-  posthoc[i,2:4]=summary(tuk$`pairwise differences of Treatment`)$p.value
-  posthoc[i, 5:7]=summary(tuk$`pairwise differences of Treatment`)$t.ratio
-  posthoc[i, 8:10]=means
-  posthoc[i, 11:13]=sds
-  posthoc[i,c(17,19,21)] = summary(tuk$`emmeans of Treatment`)$lower.CL
-  posthoc[i,c(18,20,22)] = summary(tuk$`emmeans of Treatment`)$upper.CL
-}
-
-# Define output CSV column and row names
-colnames(posthoc)=c("FDR corrected Pvalue","SW Comparison Group Pvalue","ST Comparison Group Pvalue","TW Comparison Group Pvalue",
-                    "SW Comparison Group Tratio","ST Comparison Group Tratio","TW Comparison Group Tratio",
-                    "Mean sedentary group", "Mean voluntary group", "Mean voluntary + enforced group",
-                    "SD sedentary group", "SD voluntary group", "SD voluntary + enforced group",
-                    "SW Comparison Group Effect Size","ST Comparison Group Effect Size","TW Comparison Group Effect Size",
-                    "ST Comparison Group Lower CI", "ST Comparison Group Higher CI", "SW Comparison Group Lower CI", "SW Comparison Group Higher CI", 
-                    "TW Comparison Group Lower CI", "TW Comparison Group Higher CI")
-rownames(posthoc)=rownames(sig)
-
-# Save output CSV to specific folder string
-write.csv(sig, 'posthoc_group_stats_fa.csv')
-write.csv(posthoc, 'posthoc_comparison_stats_fa.csv')
-
-# Activate Venv and run read_posthoc.py
-# read_post.py serves to read above output CSV (posthoc_comparison_stats.csv specifically), and sort 
-# brain regions by effect sizes and postivitiy/negativity
-data[,2:(dim(data)[2]-1)]=data[,2:(dim(data)[2]-1)]/100
-
-
-# Update Treatment names for plotting
-data_orig = data
-treat = unlist(data[,"Treatment"])
-treat= gsub ("wheel_only", "Voluntary", unlist(treat ))
-treat= gsub ("treadmill", "Voluntary + Enforced", treat )
-treat= gsub ("sedentary", "Sedentary", treat )
-data[,"Treatment"] = treat
-# data[,"Treatment"] = data[,"Treatment"] %>% str_replace_all(c("wheel_only" = "Voluntary", "treadmill" = "Voluntary + Enforced", "sedentary" = "Sedentary"))
-
-
-# Define figure title hash/dict
-dict <- hash()
-dict[["st"]] = c("Sedentary", "Voluntary + Enforced")
-dict[["sw"]] = c("Sedentary", "Voluntary")
-dict[["tw"]] = c("Voluntary", "Voluntary + Enforced")
-
-### PLOTTING
-# Set comparisong group vector to loop through: 'st': sedentary vs. treadmill, 'sw': sedentary vs. wheel_only
-# 'tw': treadmill vs. wheel_only
-comp_groups = c('ST','SW','TW')
-plot_list = list()
-
-
-posthoc = as.data.frame(posthoc)
-library(formula.tools)
-
-# Nested for loop: main loop specifies whether positive or negative effect sizes are being analysed
-# inner for loop specifies which comparison group is being analyzed
-for (j in c( 'positive', 'negative')) {
-  print(paste(j, 'effect size regions'))
-  for (i in 1:length(comp_groups)) {
-    comparison = comp_groups[i] # 'st', 'sw', or 'tw'
-    
-    # Based on whether we are looking at the positive/negative effect size group, or the 'st', 'sw', or 'tw' comparison group,
-    # we access the appropriate CSV in the below line; CSV is the output of the read_posthoc.py script
-    
-    #############
-    tempname1 = paste0( comparison, ' Comparison Group Pvalue')
-    ind1 = which(tempname1 == colnames(posthoc))
-    tempname2 = paste0( comparison, ' Comparison Group Effect Size')
-    ind2= which(tempname2 == colnames(posthoc))
-    
-    if (j == 'positive') {       index = which(posthoc[,ind1]<0.05 & posthoc[,ind2]>0 )     }
-    if (j == 'negative') {       index = which(posthoc[,ind1]<0.05 & posthoc[,ind2]<0 )     }
-    
-    if(length(index)>0){
-      top_comp2 =  posthoc[index,]
-      # # top_comp1 = matrix(NA, dim(top_comp2)[1], 10)
-      # top_comp1[,1]= rownames(top_comp2)
-      # top_comp[,1] =
-      # 
-      
-      
-      
-      
-      #############
-      # top_comp=read.csv(paste('/Users/ali/Desktop/Aug23/CVN/run_bass_our_fa/',comparison,'_regs/top_',substr(j,1,3),'_regions_',comparison,'.csv',sep=""))
-      # data_comp = data[data$Treatment %in% dict[[i]],]
-      # Assign values based on CSV columns to significant region names, abbreviations, and p-values and effect sizes
-      sig_reg = rownames(top_comp2)
-      
-      indtemp = which(struc_temp$Abbreviation %in% sig_reg)
-      reg_struc = struc_temp$Structure[indtemp]
-      
-      pvals_regs = formatC( as.numeric( top_comp2[,ind1], format = "e", digits = 2))
-      
-      eff_sizes = formatC(as.numeric(top_comp2[,ind2], format = "e", digits = 2))
-      
-      graph_list = list()
-      for (k in 1:3) {
-        if (is.na(sig_reg[k]) == F) {
-          res.aov <- aov(get(sig_reg[k]) ~ Treatment, data = data)
-          tuk=tukey_hsd(res.aov)
-          data_temp <- data[,c("Treatment",sig_reg[k])] %>% setNames(c("treatment","region"))
-          tuk <- add_y_position(tuk, data=data_temp, formula=region ~ treatment)
-          pbar_tab <- tuk[,c("group1", "group2", "p.adj", "y.position")]
-          
-          p <-  ggbetweenstats(
-            data= data, 
-            x = Treatment,
-            y = !!sig_reg[k],
-            type = "parametric", # ANOVA or Kruskal-Wallis
-            var.equal = TRUE, # ANOVA or Welch ANOVA
-            plot.type = "box",
-            pairwise.comparisons = TRUE,
-            pairwise.display = "significant",
-            centrality.plotting = FALSE,
-            bf.message = FALSE, 
-            ggsignif.args = list(textsize = 3, tip_length = 0.01), 
-            smooth.line.args = list(linewidth = 4, color = "blue", method = "lm", formula = y ~x),
-            point.args = list(size = 4, alpha = 0.4, stroke = 0), 
-            point.label.args = list(size = 4, max.overlaps = 1e+06), 
-            ggplot.component = list(theme(text = element_text(size = 15))))
-            
-            
-            
-            
-            
-            # ggplot(data, aes_string(x="Treatment", y=sig_reg[k])) + stat_pvalue_manual(pbar_tab, label = "p.adj", size = 3, tip.length = 0, hide.ns = TRUE) +
-            # geom_violin() + geom_boxplot(width=0.1) + geom_dotplot(binaxis= "y", stackdir = "center", dotsize=0.5, fill='red') + 
-            # labs(title=reg_struc[k], subtitle=paste("P-value of ",toString(pvals_regs[k])," | Effect size of ",toString(eff_sizes[k])), y="", x="") + theme_bw() +
-            # theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
-            # 
-          graph_list[[k]] = p
-        }
-        else {
-          p <- ggplot(data, aes_string(x="Treatment", y=sig_reg[length(sig_reg)])) + geom_blank() + theme_bw() + labs(x="", y="")
-          graph_list[[k]] = p
-        }
-      }
-      
-      p1 <- graph_list[[1]] #+ theme(axis.title.y = element_text(margin = margin(r = 20)), axis.title.x = element_blank())
-      p2 <- graph_list[[2]] #+ theme(axis.title.x = element_text(margin = margin(t = 20)), axis.title.y = element_blank())
-      p3 <- graph_list[[3]] #+ theme(axis.title = element_blank())
-      
-      # Add total figure titles
-      patchwork <- p1 + p2 + p3 + plot_annotation(
-        #title = paste(dict[[comparison]][1],'vs.',dict[[comparison]][2],'Exercise'),
-        title = paste(comparison),
-        theme = theme(plot.subtitle = element_text(hjust = 0.5), plot.title = element_text(hjust = 0.5, face = "bold"))
-      )
-      plot_list[[i]] = patchwork
-      full_plot <- p1 + p2 + p3 + plot_annotation(
-        title = paste('Regions of Significance following Post-Hoc Analysis (',str_to_title(j),' Effect Size)',sep=""),
-        # subtitle = paste(dict[[comparison]][1],'vs.',dict[[comparison]][2],'Exercise'),
-        subtitle = paste(comparison),
-        caption = 'DRAFT',
-        theme = theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5),
-                      plot.margin=unit(c(1,1,-0.5,0), 'cm'))
-      )
-      gt <- patchwork::patchworkGrob(full_plot)
-      full_plot <- gridExtra::grid.arrange(gt, left = "  Volume (%)  ", bottom = "Treatment")
-      
-      # Saving individual plots
-      File <- paste(j,"_eff/",comparison,'_',substr(j,1,3),'.png',sep="")
-      ggsave(File, plot = full_plot, width=1213, height=514, dpi = 150, units='px', scale=2)
-      
-      # For tracking plotting and debugging
-      print(paste(comparison, 'complete'))
-      
-    }
-  }  
-  if (length(plot_list) ==1){comp_plot = plot_grid(plot_list[[1]], nrow=1, ncol=1)}
-  if (length(plot_list) ==2){comp_plot = plot_grid(plot_list[[1]], plot_list[[2]], nrow=, ncol=1)}
-  if (length(plot_list) ==3){comp_plot = plot_grid(plot_list[[1]], plot_list[[2]], plot_list[[3]], nrow=3, ncol=1)}
-  composite_figure <- comp_plot + plot_annotation(
-    title = paste('Regions of Significance following Post-Hoc Analysis (',str_to_title(j),' Effect Size)',sep=""),
-    caption = 'DRAFT',
-    theme = theme(plot.title = element_text(hjust = 0.5, size = 16), plot.subtitle = element_text(hjust = 0.5),
-                  plot.margin=unit(c(1,1,-0.5,0), 'cm'))
-  )
-  gt <- patchwork::patchworkGrob(composite_figure)
-  composite_figure <- gridExtra::grid.arrange(gt, left = " Volume (%)", bottom = "Treatment")
-  # Saving Plots
-  File <- paste(substr(j,1,3),'.png',sep="")
-  ggsave(File, plot = composite_figure, width=1322, height=1322, dpi = 150, units='px', scale=2)
-}
-
+# 
+# 
+# # Create new 'pvalsresultadjusted' variable to eventually populated with FDR-corrected values
+# pvalsresultsadjusted=pvalsresults
+# 
+# ## adjust pvalues Benjamini & Hochberg
+# # To understand what we're doing here, we are comparing all the p-values determined from the ANOVAs conducted on all
+# # 332 brain regions. Because we can treat each ANOVA as an individual hypothesis test, we need to account for the 
+# # multiple comparisons effect in the type 1 error rate. This can be done using various P-value (or significance) 
+# # correction methods, but we will be using the Benjamini & Hochberg Correction method (specified by either 'BH or 'fdr')
+# # References: https://www.youtube.com/watch?v=rZKa4tW2NKs&t=483s
+# #             https://www.youtube.com/watch?v=K8LQSvtjcEo&t=43s
+# pvalsresultsadjusted[,7] = p.adjust(pvalsresultsadjusted[,7], "fdr") #Benjamini & Hochberg
+# pvalsresultsadjusted[,7] = as.numeric(pvalsresultsadjusted[,7])
+# 
+# # Filter 'pvalsresultesadjusted' table to display brain regions that have significant p values (p<0.05)
+# # sig = pvalsresultsadjusted[as.numeric(pvalsresultsadjusted[,10])<=0.05,] 
+# sig = pvalsresultsadjusted[pvalsresultsadjusted[,6]<=0.05,] #&
+#                            # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)]>0.05 & # For Levene's Test
+#                            # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)-1]>0.05,] # For Shapiro-Wilk Test
+# sig = as.data.frame(sig)
+# # sig <- sig[order(sig$`Cohen's F Effect Size`, decreasing = TRUE),]
+# 
+# 
+# # Create empty 'posthoc' matrix to eventually populate with all gruop comparison data; 
+# # Set first 'posthoc' column equal to 8th column of 'sig' matrix (FDR-corrected P-value column)
+# posthoc = matrix(NA,dim(sig)[1],22)
+# posthoc[,1]=sig[,"FDR corrected Pvalue"]
+# 
+# # Loop through each significant (FDR-corrected p-value < 0.05) brain region (from 'sig' matrix) and conduct 
+# # a Tukey test and report p-values for each comparison group
+# for (i in 1:dim(sig)[1]) {
+#   # Set 'tempname' to the currently analyzed brain regions
+#   tempname=rownames(sig)[i]
+#   
+#   # Find abbreviation full structure name
+#   sa_ind = which(struc_abbrev$Abbreviation == tempname)
+#   full_struc = struc_abbrev[sa_ind, 'Structure']
+#   reg_ind = struc_abbrev[sa_ind, "Index"]
+#   #posthoc[,1 = full_struc]
+#   
+#   # Conduct ANOVA on currently analyzed brain region and use ANOVA output to conduct post-hoc Tukey test
+#   mylm <- lm(get(tempname) ~ as.factor(Treatment), data=data) 
+#   # anova(mylm)
+#   tuk=emmeans(mylm, list(pairwise ~ as.factor(Treatment)), adjust="tukey")
+#   
+#   # Get mean/stdev columns
+# 
+#   means = as.numeric(sig[tempname, c("Mean sedentary group", "Mean Treadmill", "Mean Wheel Only")])
+#   sds = as.numeric(sig[tempname, c("SD sedentary group", "SD Treadmill", "SD Wheen Only")])
+#   
+#   # Define Tukey comparison groups for calculating hedge's G effect size. Note that these groups are mannually
+#   # set so that effect sizes can correlate with changes in regional FAs (e.g. negative effect size correlates
+#   # with decrease in regional FAs)
+#   control = c('wheel_only', 'treadmill', 'treadmill')
+#   treatment = c('sedentary', 'sedentary', 'wheel_only')
+#   
+#   # For given brain region, loop through comparison groups and calculate hedge's g for each comparison groups
+#   for (j in 1:length(control)){
+#     hedges_out = hedges_g(get(tempname) ~ factor(Treatment, levels=c(control[j], treatment[j])), data=data)
+#     posthoc[i,j+13]=hedges_out$Hedges_g #Go through columns 5, 6, 7
+#   }
+#   
+#   # Add adjusted P-value and add low and high confidence intervals to 'posthoc' matrix
+#   posthoc[i,2:4]=summary(tuk$`pairwise differences of Treatment`)$p.value
+#   posthoc[i, 5:7]=summary(tuk$`pairwise differences of Treatment`)$t.ratio
+#   posthoc[i, 8:10]=means
+#   posthoc[i, 11:13]=sds
+#   posthoc[i,c(17,19,21)] = summary(tuk$`emmeans of Treatment`)$lower.CL
+#   posthoc[i,c(18,20,22)] = summary(tuk$`emmeans of Treatment`)$upper.CL
+# }
+# 
+# # Define output CSV column and row names
+# colnames(posthoc)=c("FDR corrected Pvalue","SW Comparison Group Pvalue","ST Comparison Group Pvalue","TW Comparison Group Pvalue",
+#                     "SW Comparison Group Tratio","ST Comparison Group Tratio","TW Comparison Group Tratio",
+#                     "Mean sedentary group", "Mean voluntary group", "Mean voluntary + enforced group",
+#                     "SD sedentary group", "SD voluntary group", "SD voluntary + enforced group",
+#                     "SW Comparison Group Effect Size","ST Comparison Group Effect Size","TW Comparison Group Effect Size",
+#                     "ST Comparison Group Lower CI", "ST Comparison Group Higher CI", "SW Comparison Group Lower CI", "SW Comparison Group Higher CI", 
+#                     "TW Comparison Group Lower CI", "TW Comparison Group Higher CI")
+# rownames(posthoc)=rownames(sig)
+# 
+# # Save output CSV to specific folder string
+# write.csv(sig, 'posthoc_group_stats_fa.csv')
+# write.csv(posthoc, 'posthoc_comparison_stats_fa.csv')
+# 
+# # Activate Venv and run read_posthoc.py
+# # read_post.py serves to read above output CSV (posthoc_comparison_stats.csv specifically), and sort 
+# # brain regions by effect sizes and postivitiy/negativity
+# data[,2:(dim(data)[2]-1)]=data[,2:(dim(data)[2]-1)]/100
+# 
+# 
+# # Update Treatment names for plotting
+# data_orig = data
+# treat = unlist(data[,"Treatment"])
+# treat= gsub ("wheel_only", "Voluntary", unlist(treat ))
+# treat= gsub ("treadmill", "Voluntary + Enforced", treat )
+# treat= gsub ("sedentary", "Sedentary", treat )
+# data[,"Treatment"] = treat
+# # data[,"Treatment"] = data[,"Treatment"] %>% str_replace_all(c("wheel_only" = "Voluntary", "treadmill" = "Voluntary + Enforced", "sedentary" = "Sedentary"))
+# 
+# 
+# # Define figure title hash/dict
+# dict <- hash()
+# dict[["st"]] = c("Sedentary", "Voluntary + Enforced")
+# dict[["sw"]] = c("Sedentary", "Voluntary")
+# dict[["tw"]] = c("Voluntary", "Voluntary + Enforced")
+# 
+# ### PLOTTING
+# # Set comparisong group vector to loop through: 'st': sedentary vs. treadmill, 'sw': sedentary vs. wheel_only
+# # 'tw': treadmill vs. wheel_only
+# comp_groups = c('ST','SW','TW')
+# plot_list = list()
+# 
+# 
+# posthoc = as.data.frame(posthoc)
+# library(formula.tools)
+# 
+# # Nested for loop: main loop specifies whether positive or negative effect sizes are being analysed
+# # inner for loop specifies which comparison group is being analyzed
+# for (j in c( 'positive', 'negative')) {
+#   print(paste(j, 'effect size regions'))
+#   for (i in 1:length(comp_groups)) {
+#     comparison = comp_groups[i] # 'st', 'sw', or 'tw'
+#     
+#     # Based on whether we are looking at the positive/negative effect size group, or the 'st', 'sw', or 'tw' comparison group,
+#     # we access the appropriate CSV in the below line; CSV is the output of the read_posthoc.py script
+#     
+#     #############
+#     tempname1 = paste0( comparison, ' Comparison Group Pvalue')
+#     ind1 = which(tempname1 == colnames(posthoc))
+#     tempname2 = paste0( comparison, ' Comparison Group Effect Size')
+#     ind2= which(tempname2 == colnames(posthoc))
+#     
+#     if (j == 'positive') {       index = which(posthoc[,ind1]<0.05 & posthoc[,ind2]>0 )     }
+#     if (j == 'negative') {       index = which(posthoc[,ind1]<0.05 & posthoc[,ind2]<0 )     }
+#     
+#     if(length(index)>0){
+#       top_comp2 =  posthoc[index,]
+#       # # top_comp1 = matrix(NA, dim(top_comp2)[1], 10)
+#       # top_comp1[,1]= rownames(top_comp2)
+#       # top_comp[,1] =
+#       # 
+#       
+#       
+#       
+#       
+#       #############
+#       # top_comp=read.csv(paste('/Users/ali/Desktop/Aug23/CVN/run_bass_our_fa/',comparison,'_regs/top_',substr(j,1,3),'_regions_',comparison,'.csv',sep=""))
+#       # data_comp = data[data$Treatment %in% dict[[i]],]
+#       # Assign values based on CSV columns to significant region names, abbreviations, and p-values and effect sizes
+#       sig_reg = rownames(top_comp2)
+#       
+#       indtemp = which(struc_temp$Abbreviation %in% sig_reg)
+#       reg_struc = struc_temp$Structure[indtemp]
+#       
+#       pvals_regs = formatC( as.numeric( top_comp2[,ind1], format = "e", digits = 2))
+#       
+#       eff_sizes = formatC(as.numeric(top_comp2[,ind2], format = "e", digits = 2))
+#       
+#       graph_list = list()
+#       for (k in 1:3) {
+#         if (is.na(sig_reg[k]) == F) {
+#           res.aov <- aov(get(sig_reg[k]) ~ Treatment, data = data)
+#           tuk=tukey_hsd(res.aov)
+#           data_temp <- data[,c("Treatment",sig_reg[k])] %>% setNames(c("treatment","region"))
+#           tuk <- add_y_position(tuk, data=data_temp, formula=region ~ treatment)
+#           pbar_tab <- tuk[,c("group1", "group2", "p.adj", "y.position")]
+#           
+#           p <-  ggbetweenstats(
+#             data= data, 
+#             x = Treatment,
+#             y = !!sig_reg[k],
+#             type = "parametric", # ANOVA or Kruskal-Wallis
+#             var.equal = TRUE, # ANOVA or Welch ANOVA
+#             plot.type = "box",
+#             pairwise.comparisons = TRUE,
+#             pairwise.display = "significant",
+#             centrality.plotting = FALSE,
+#             bf.message = FALSE, 
+#             ggsignif.args = list(textsize = 3, tip_length = 0.01), 
+#             smooth.line.args = list(linewidth = 4, color = "blue", method = "lm", formula = y ~x),
+#             point.args = list(size = 4, alpha = 0.4, stroke = 0), 
+#             point.label.args = list(size = 4, max.overlaps = 1e+06), 
+#             ggplot.component = list(theme(text = element_text(size = 15))))
+#             
+#             
+#             
+#             
+#             
+#             # ggplot(data, aes_string(x="Treatment", y=sig_reg[k])) + stat_pvalue_manual(pbar_tab, label = "p.adj", size = 3, tip.length = 0, hide.ns = TRUE) +
+#             # geom_violin() + geom_boxplot(width=0.1) + geom_dotplot(binaxis= "y", stackdir = "center", dotsize=0.5, fill='red') + 
+#             # labs(title=reg_struc[k], subtitle=paste("P-value of ",toString(pvals_regs[k])," | Effect size of ",toString(eff_sizes[k])), y="", x="") + theme_bw() +
+#             # theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+#             # 
+#           graph_list[[k]] = p
+#         }
+#         else {
+#           p <- ggplot(data, aes_string(x="Treatment", y=sig_reg[length(sig_reg)])) + geom_blank() + theme_bw() + labs(x="", y="")
+#           graph_list[[k]] = p
+#         }
+#       }
+#       
+#       p1 <- graph_list[[1]] #+ theme(axis.title.y = element_text(margin = margin(r = 20)), axis.title.x = element_blank())
+#       p2 <- graph_list[[2]] #+ theme(axis.title.x = element_text(margin = margin(t = 20)), axis.title.y = element_blank())
+#       p3 <- graph_list[[3]] #+ theme(axis.title = element_blank())
+#       
+#       # Add total figure titles
+#       patchwork <- p1 + p2 + p3 + plot_annotation(
+#         #title = paste(dict[[comparison]][1],'vs.',dict[[comparison]][2],'Exercise'),
+#         title = paste(comparison),
+#         theme = theme(plot.subtitle = element_text(hjust = 0.5), plot.title = element_text(hjust = 0.5, face = "bold"))
+#       )
+#       plot_list[[i]] = patchwork
+#       full_plot <- p1 + p2 + p3 + plot_annotation(
+#         title = paste('Regions of Significance following Post-Hoc Analysis (',str_to_title(j),' Effect Size)',sep=""),
+#         # subtitle = paste(dict[[comparison]][1],'vs.',dict[[comparison]][2],'Exercise'),
+#         subtitle = paste(comparison),
+#         caption = 'DRAFT',
+#         theme = theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5),
+#                       plot.margin=unit(c(1,1,-0.5,0), 'cm'))
+#       )
+#       gt <- patchwork::patchworkGrob(full_plot)
+#       full_plot <- gridExtra::grid.arrange(gt, left = "  Volume (%)  ", bottom = "Treatment")
+#       
+#       # Saving individual plots
+#       File <- paste(j,"_eff/",comparison,'_',substr(j,1,3),'.png',sep="")
+#       ggsave(File, plot = full_plot, width=1213, height=514, dpi = 150, units='px', scale=2)
+#       
+#       # For tracking plotting and debugging
+#       print(paste(comparison, 'complete'))
+#       
+#     }
+#   }  
+#   if (length(plot_list) ==1){comp_plot = plot_grid(plot_list[[1]], nrow=1, ncol=1)}
+#   if (length(plot_list) ==2){comp_plot = plot_grid(plot_list[[1]], plot_list[[2]], nrow=, ncol=1)}
+#   if (length(plot_list) ==3){comp_plot = plot_grid(plot_list[[1]], plot_list[[2]], plot_list[[3]], nrow=3, ncol=1)}
+#   composite_figure <- comp_plot + plot_annotation(
+#     title = paste('Regions of Significance following Post-Hoc Analysis (',str_to_title(j),' Effect Size)',sep=""),
+#     caption = 'DRAFT',
+#     theme = theme(plot.title = element_text(hjust = 0.5, size = 16), plot.subtitle = element_text(hjust = 0.5),
+#                   plot.margin=unit(c(1,1,-0.5,0), 'cm'))
+#   )
+#   gt <- patchwork::patchworkGrob(composite_figure)
+#   composite_figure <- gridExtra::grid.arrange(gt, left = " Volume (%)", bottom = "Treatment")
+#   # Saving Plots
+#   File <- paste(substr(j,1,3),'.png',sep="")
+#   ggsave(File, plot = composite_figure, width=1322, height=1322, dpi = 150, units='px', scale=2)
+# }
+# 

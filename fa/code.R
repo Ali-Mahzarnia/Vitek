@@ -276,8 +276,8 @@ pvalsresultsadjusted=pvalsresults
 # pvalsresultsadjusted[,7] = as.numeric(pvalsresultsadjusted[,7])
 
 # Filter 'pvalsresultesadjusted' table to display brain regions that have significant p values (p<0.05)
-# sig = pvalsresultsadjusted[as.numeric(pvalsresultsadjusted[,10])<=0.05,]
-sig = pvalsresultsadjusted[pvalsresultsadjusted[,7]<=0.05,] #&
+# sig = pvalsresults[as.numeric(pvalsresults[,10])<=0.05,]
+sig = pvalsresults[pvalsresults[,7]<=0.05,] #&
                            # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)]>0.05 & # For Levene's Test
                            # pvalsresultsadjusted[,ncol(pvalsresultsadjusted)-1]>0.05,] # For Shapiro-Wilk Test
 sig = as.data.frame(sig)
